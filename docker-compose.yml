@@ -1,0 +1,78 @@
+version: '3.8'
+
+services:
+  # Frontend Service
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: scgpt-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - scgpt-network
+    restart: unless-stopped
+
+  # Backend Service
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: scgpt-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8000
+      - MAX_UPLOAD_SIZE=5368709120
+    volumes:
+      - ./backend/uploads:/app/uploads
+      - ./backend/results:/app/results
+      - ./backend/models:/app/models
+    networks:
+      - scgpt-network
+    restart: unless-stopped
+    # Resource limits (adjust based on your needs)
+    deploy:
+      resources:
+        limits:
+          cpus: '16'
+          memory: 64G
+        reservations:
+          cpus: '8'
+          memory: 32G
+
+  # Redis (for task queue - optional for MVP)
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: scgpt-redis
+  #   ports:
+  #     - "6379:6379"
+  #   networks:
+  #     - scgpt-network
+  #   restart: unless-stopped
+
+  # PostgreSQL (for user management - optional for MVP)
+  # postgres:
+  #   image: postgres:15-alpine
+  #   container_name: scgpt-postgres
+  #   environment:
+  #     POSTGRES_USER: scgpt_user
+  #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+  #     POSTGRES_DB: scgpt_db
+  #   volumes:
+  #     - postgres-data:/var/lib/postgresql/data
+  #   ports:
+  #     - "5432:5432"
+  #   networks:
+  #     - scgpt-network
+  #   restart: unless-stopped
+
+networks:
+  scgpt-network:
+    driver: bridge
+
+volumes:
+  postgres-data:
