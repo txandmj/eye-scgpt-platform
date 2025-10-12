@@ -13,6 +13,7 @@ import logging
 from datetime import datetime
 import threading
 import tempfile
+from app import auth_router
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -23,6 +24,8 @@ app = FastAPI(
     description="API for single-cell omics data annotation using scGPT",
     version="1.0.0"
 )
+
+app.include_router(auth_router.router)
 
 # CORS middleware
 app.add_middleware(
