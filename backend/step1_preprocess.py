@@ -1,18 +1,19 @@
 # %%
 
+import os
 from utils import *
 
-# Parameters
-dataset_directory='../EVAL_snRNA_no_enriched.h5ad'
-do_norm=True
-filter_gene_by_counts=0
-filter_cell_by_counts=0
-n_hvg=5000
-hvg_flavor='seurat_v3'
-cell_type_col=None
-batch_id_col=None
-load_model='../test_model'
-save_dir = 'outdir_step1'
+# Parameters - can be overridden by environment variables
+dataset_directory = os.environ.get('DATASET_DIRECTORY', '../EVAL_snRNA_no_enriched.h5ad')
+do_norm = True
+filter_gene_by_counts = 0
+filter_cell_by_counts = 0
+n_hvg = 5000
+hvg_flavor = 'seurat_v3'
+cell_type_col = None
+batch_id_col = None
+load_model = os.environ.get('LOAD_MODEL', '/models/test_model')
+save_dir = os.environ.get('SAVE_DIR', 'outdir_step1')
 
 # 
 hyperparameter_defaults = load_config(preprocess=True, load_model_dir=load_model)

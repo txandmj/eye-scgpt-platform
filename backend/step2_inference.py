@@ -1,17 +1,18 @@
 # %%
+import os
 import torch
 import wandb
 
 from utils import *
 
-# Parameters
-load_model='/models/test_model'
-train_args='outdir_step1/train_args.yml'
-max_seq_len=-1
-freeze_predecoder=False
-batch_size=32
-epochs=1
-save_dir='outdir_step2'
+# Parameters - can be overridden by environment variables
+load_model = os.environ.get('LOAD_MODEL', '/models/test_model')
+train_args = os.environ.get('TRAIN_ARGS', 'outdir_step1/train_args.yml')
+max_seq_len = -1
+freeze_predecoder = False
+batch_size = 32
+epochs = 1
+save_dir = os.environ.get('SAVE_DIR', 'outdir_step2')
 
 #
 hyperparameter_defaults = load_config(eval=True, load_model_dir=load_model, train_args=train_args)

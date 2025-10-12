@@ -12,6 +12,7 @@ import json
 import logging
 from datetime import datetime
 import threading
+import tempfile
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -134,11 +135,14 @@ async def start_annotation(job_id: str, background_tasks: BackgroundTasks):
 
 async def process_annotation(job_id: str):
     """Process the annotation in background"""
+    temp_dir = None
     try:
         job = jobs[job_id]
         job_dir = UPLOAD_DIR / job_id
-        results_dir = RESULTS_DIR / job_id
-        results_dir.mkdir(exist_ok=True)
+        
+        # Create temporary directory for processing
+        temp_dir = Path(tempfile.mkdtemp(prefix=f"annotation_{job_id}_"))
+        logger.info(f"Using temporary directory: {temp_dir}")
         
         # Get the uploaded file
         uploaded_files = list(job_dir.glob("*.h5ad"))
@@ -149,16 +153,22 @@ async def process_annotation(job_id: str):
         
         # Step 1: Preprocessing
         logger.info(f"Starting step 1 (preprocessing) for job {job_id}")
-        step1_dir = results_dir / "step1"
+        step1_dir = temp_dir / "step1"
         step1_dir.mkdir(exist_ok=True)
         
-        # Create modified step1 script for this job
-        step1_script = create_step1_script(uploaded_file, step1_dir)
+        # Set up environment for step1
+        step1_env = os.environ.copy()
+        step1_env.update({
+            'DATASET_DIRECTORY': str(uploaded_file),
+            'SAVE_DIR': str(step1_dir),
+            'LOAD_MODEL': str(TEST_MODEL_DIR)
+        })
         
-        # Run step 1
+        # Run step 1 directly
         result1 = subprocess.run(
-            ["python", step1_script],
+            ["python", "step1_preprocess.py"],
             cwd=backend_dir,
+            env=step1_env,
             capture_output=True,
             text=True,
             timeout=3600  # 1 hour timeout
@@ -171,16 +181,22 @@ async def process_annotation(job_id: str):
         
         # Step 2: Inference
         logger.info(f"Starting step 2 (inference) for job {job_id}")
-        step2_dir = results_dir / "step2"
+        step2_dir = temp_dir / "step2"
         step2_dir.mkdir(exist_ok=True)
         
-        # Create modified step2 script for this job
-        step2_script = create_step2_script(step1_dir, step2_dir)
+        # Set up environment for step2
+        step2_env = os.environ.copy()
+        step2_env.update({
+            'LOAD_MODEL': str(TEST_MODEL_DIR),
+            'TRAIN_ARGS': str(step1_dir / "train_args.yml"),
+            'SAVE_DIR': str(step2_dir)
+        })
         
-        # Run step 2
+        # Run step 2 directly
         result2 = subprocess.run(
-            ["python", step2_script],
+            ["python", "step2_inference.py"],
             cwd=backend_dir,
+            env=step2_env,
             capture_output=True,
             text=True,
             timeout=3600  # 1 hour timeout
@@ -192,17 +208,23 @@ async def process_annotation(job_id: str):
         logger.info(f"Step 2 completed for job {job_id}")
         
         # Check if results exist
-        predictions_file = step2_dir / "predictions.csv"
-        if not predictions_file.exists():
+        temp_predictions_file = step2_dir / "predictions.csv"
+        if not temp_predictions_file.exists():
             raise Exception("Predictions file not found after processing")
+        
+        # Create results directory and copy only the final results
+        results_dir = RESULTS_DIR / job_id
+        results_dir.mkdir(exist_ok=True)
+        
+        # Copy the final predictions file to results directory
+        final_predictions_file = results_dir / "predictions.csv"
+        shutil.copy2(temp_predictions_file, final_predictions_file)
         
         # Update job status
         jobs[job_id]["status"] = JobStatus.COMPLETED
         jobs[job_id]["end_time"] = datetime.now().isoformat()
         jobs[job_id]["results"] = {
-            "predictions_file": str(predictions_file),
-            "step1_dir": str(step1_dir),
-            "step2_dir": str(step2_dir)
+            "predictions_file": str(final_predictions_file)
         }
         
         logger.info(f"Annotation completed successfully for job {job_id}")
@@ -212,54 +234,16 @@ async def process_annotation(job_id: str):
         jobs[job_id]["status"] = JobStatus.FAILED
         jobs[job_id]["end_time"] = datetime.now().isoformat()
         jobs[job_id]["error"] = str(e)
+    
+    finally:
+        # Clean up temporary directory
+        if temp_dir and temp_dir.exists():
+            try:
+                shutil.rmtree(temp_dir)
+                logger.info(f"Cleaned up temporary directory: {temp_dir}")
+            except Exception as e:
+                logger.warning(f"Failed to clean up temporary directory {temp_dir}: {e}")
 
-def create_step1_script(input_file: Path, output_dir: Path) -> Path:
-    """Create a customized step1 script for the specific job"""
-    script_path = output_dir / "step1_preprocess.py"
-    
-    # Read the original step1 script
-    original_script = Path("step1_preprocess.py").read_text()
-    
-    # Replace the dataset path and save directory
-    modified_script = original_script.replace(
-        "dataset_directory='../EVAL_snRNA_no_enriched.h5ad'",
-        f"dataset_directory='{input_file}'"
-    ).replace(
-        "save_dir = 'outdir_step1'",
-        f"save_dir = '{output_dir}'"
-    ).replace(
-        "load_model='../test_model'",
-        f"load_model='{TEST_MODEL_DIR}'"
-    )
-    
-    # Write the modified script
-    script_path.write_text(modified_script)
-    
-    return script_path
-
-def create_step2_script(step1_dir: Path, step2_dir: Path) -> Path:
-    """Create a customized step2 script for the specific job"""
-    script_path = step2_dir / "step2_inference.py"
-    
-    # Read the original step2 script
-    original_script = Path("step2_inference.py").read_text()
-    
-    # Replace the paths
-    modified_script = original_script.replace(
-        "load_model='../test_model'",
-        f"load_model='{TEST_MODEL_DIR}'"
-    ).replace(
-        "train_args='outdir_step1/train_args.yml'",
-        f"train_args='{step1_dir}/train_args.yml'"
-    ).replace(
-        "save_dir='outdir_step2'",
-        f"save_dir='{step2_dir}'"
-    )
-    
-    # Write the modified script
-    script_path.write_text(modified_script)
-    
-    return script_path
 
 @app.get("/api/job/{job_id}")
 async def get_job_status(job_id: str):
