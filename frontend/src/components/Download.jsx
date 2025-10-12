@@ -26,13 +26,26 @@ function Download({ jobId }) {
     setError('');
 
     try {
-      const response = await axios.get(`${API_URL}/api/results/${id}`);
+      const response = await axios.get(`${API_URL}/api/job/${id}`);
+      const job = response.data;
       
-      if (response.data.status === 'no_results') {
-        setError('No results found for this Job ID. The annotation may still be processing.');
+      if (job.status === 'pending' || job.status === 'processing') {
+        setError('Job is still processing. Please wait for completion.');
         setResults([]);
+      } else if (job.status === 'failed') {
+        setError(`Job failed: ${job.error || 'Unknown error'}`);
+        setResults([]);
+      } else if (job.status === 'completed' && job.results) {
+        // Fetch the actual results
+        const downloadResponse = await axios.get(`${API_URL}/api/download/${id}`);
+        setResults([{
+          filename: downloadResponse.data.filename,
+          content: downloadResponse.data.content,
+          downloadUrl: downloadResponse.data.download_url
+        }]);
       } else {
-        setResults(response.data.files);
+        setError('No results found for this Job ID.');
+        setResults([]);
       }
     } catch (err) {
       setError(`Failed to fetch results: ${err.response?.data?.detail || err.message}`);
@@ -42,9 +55,14 @@ function Download({ jobId }) {
     }
   };
 
-  const handleDownload = (filename) => {
-    const downloadUrl = `${API_URL}/api/download/${inputJobId}/${filename}`;
-    window.open(downloadUrl, '_blank');
+  const handleDownload = (file) => {
+    if (file.downloadUrl) {
+      window.open(`${API_URL}${file.downloadUrl}`, '_blank');
+    } else {
+      // Fallback to direct file download
+      const downloadUrl = `${API_URL}/api/download/${inputJobId}/file`;
+      window.open(downloadUrl, '_blank');
+    }
   };
 
   const formatFileSize = (bytes) => {
@@ -108,11 +126,11 @@ function Download({ jobId }) {
                     <span className="file-icon">{getFileIcon(file.filename)}</span>
                     <div className="file-name-size">
                       <strong>{file.filename}</strong>
-                      <span className="file-size">{formatFileSize(file.size)}</span>
+                      <span className="file-size">Ready for download</span>
                     </div>
                   </div>
                   <button
-                    onClick={() => handleDownload(file.filename)}
+                    onClick={() => handleDownload(file)}
                     className="btn btn-small"
                   >
                     ⬇️ Download

@@ -33,6 +33,13 @@ torchaudio>=2.1.0
 # scGPT - Use latest version (supports Python 3.11)
 scgpt==0.2.4
 
+# Additional dependencies for scGPT
+wandb>=0.16.0
+pyyaml>=6.0
+tqdm>=4.66.0
+scikit-learn>=1.3.0
+torch-audio>=0.13.0
+
 # For Seurat RDS files (optional - may be difficult on Windows)
 # rpy2>=3.5.0
 
