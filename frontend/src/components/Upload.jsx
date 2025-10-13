@@ -1,7 +1,25 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const rawBase = process.env.REACT_APP_API_BASE || process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const normalizeBase = (url) => {
+  if (!url) return 'http://localhost:8000';
+  const trimmed = url.trim();
+  // Handle values like ":8000" → protocol + hostname + port
+  if (trimmed.startsWith(':')) {
+    return `${window.location.protocol}//${window.location.hostname}${trimmed}`;
+  }
+  // Handle values like "/api" → graft onto current origin
+  if (trimmed.startsWith('/')) {
+    return `${window.location.origin}${trimmed}`;
+  }
+  // If missing protocol, default to http://
+  if (!/^https?:\/\//i.test(trimmed)) {
+    return `http://${trimmed}`;
+  }
+  return trimmed.replace(/\/$/, '');
+};
+const API_BASE = normalizeBase(rawBase);
 
 function Upload({ onUploadSuccess }) {
   const [file, setFile] = useState(null);
@@ -32,7 +50,7 @@ function Upload({ onUploadSuccess }) {
     setMessage('Uploading file...');
 
     try {
-      const response = await axios.post(`${API_URL}/api/upload`, formData, {
+      const response = await axios.post(`${API_BASE}/api/upload`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
@@ -62,7 +80,7 @@ function Upload({ onUploadSuccess }) {
     setMessage('Running annotation... This may take a few minutes.');
 
     try {
-      const response = await axios.post(`${API_URL}/api/annotate/${uploadedJobId}`);
+      const response = await axios.post(`${API_BASE}/api/annotate/${uploadedJobId}`);
       
       setMessage('Annotation completed successfully!');
       setAnnotating(false);
