@@ -177,7 +177,12 @@ async def process_annotation(job_id: str):
             timeout=3600  # 1 hour timeout
         )
         
+        print("DEBUG STEP1 STDOUT:\n", result1.stdout)
+        print("DEBUG STEP1 STDERR:\n", result1.stderr)
+        
         if result1.returncode != 0:
+            import traceback
+            print("DEBUG STEP1 EXCEPTION:\n", traceback.format_exc())
             raise Exception(f"Step 1 failed: {result1.stderr}")
         
         logger.info(f"Step 1 completed for job {job_id}")
