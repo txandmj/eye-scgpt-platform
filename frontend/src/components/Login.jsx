@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 function Login({ setActiveTab }) {
   const [email, setEmail] = useState('');
@@ -6,6 +6,101 @@ function Login({ setActiveTab }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const googleBtnRef = useRef(null);
+
+  const GOOGLE_CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID || '978070226745-cpevojet4d29ep33vm1vm88mr9st4osm.apps.googleusercontent.com';
+  const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:8000';
+
+  useEffect(() => {
+    let retryTimer;
+
+    const initGoogle = () => {
+      const google = window.google;
+      if (!google || !google.accounts || !google.accounts.id) {
+        retryTimer = setTimeout(initGoogle, 300);
+        return;
+      }
+
+      // Reduce noisy SDK logs in console
+      try {
+        google.accounts.id.setLogLevel('warn');
+      } catch (_) {
+        // ignore if not supported
+      }
+
+      google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        use_fedcm_for_prompt_api: false,
+        callback: async (response) => {
+          try {
+            setLoading(true);
+            setError('');
+            setMessage('');
+
+            const credential = response.credential;
+            if (!credential) {
+              console.error('[Google Sign-In] No credential returned. Likely origin mismatch.', {
+                origin: window.location.origin,
+              });
+              setError(`Google 登录失败：未获得凭证。请在 Google 控制台的 Authorized JavaScript origins 中添加 ${window.location.origin}`);
+              return;
+            }
+            const res = await fetch(`${API_BASE}/google-login`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ token: credential })
+            });
+
+            if (!res.ok) {
+              let detail = 'Google login failed';
+              try {
+                const data = await res.json();
+                detail = data?.detail || detail;
+              } catch (_) {
+                // ignore json parse error
+              }
+              throw new Error(detail);
+            }
+
+            const data = await res.json();
+            setMessage(`Welcome ${data.name || data.email || 'user'}!`);
+          } catch (err) {
+            setError(err?.message || 'Google login failed. Please try again.');
+          } finally {
+            setLoading(false);
+          }
+        }
+      });
+
+      if (googleBtnRef.current) {
+        google.accounts.id.renderButton(googleBtnRef.current, {
+          type: 'standard',
+          theme: 'outline',
+          size: 'large',
+          shape: 'rectangular',
+          text: 'signin_with',
+        });
+      }
+
+      // Expose client id for quick verification in console (read-only)
+      try {
+        Object.defineProperty(window, '__GOOGLE_CLIENT_ID', {
+          value: GOOGLE_CLIENT_ID,
+          writable: false,
+          configurable: false,
+          enumerable: false
+        });
+      } catch (_) {
+        // ignore if already defined
+      }
+    };
+
+    initGoogle();
+
+    return () => {
+      if (retryTimer) clearTimeout(retryTimer);
+    };
+  }, [GOOGLE_CLIENT_ID, setActiveTab]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -18,9 +113,6 @@ function Login({ setActiveTab }) {
       // In production, you would implement actual authentication
       if (email && password) {
         setMessage('Login successful! (Demo mode)');
-        setTimeout(() => {
-          setActiveTab('account');
-        }, 1000);
       } else {
         setError('Please enter both email and password');
       }
@@ -39,6 +131,16 @@ function Login({ setActiveTab }) {
           Access your account to manage your annotation jobs
         </p>
 
+        <div style={{ marginBottom: '16px' }}>
+          <div ref={googleBtnRef} style={{ display: 'inline-block' }} />
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '12px 0' }}>
+          <div style={{ height: 1, background: '#eee', flex: 1 }} />
+          <div style={{ color: '#999', fontSize: 12 }}>or</div>
+          <div style={{ height: 1, background: '#eee', flex: 1 }} />
+        </div>
+
         <form onSubmit={handleSubmit} className="login-form">
           <div className="form-group">
             <label htmlFor="email">Email:</label>
@@ -49,6 +151,7 @@ function Login({ setActiveTab }) {
               onChange={(e) => setEmail(e.target.value)}
               placeholder="your.email@example.com"
               className="text-input"
+              autoComplete="email"
               required
             />
           </div>
@@ -62,6 +165,7 @@ function Login({ setActiveTab }) {
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Enter your password"
               className="text-input"
+              autoComplete="current-password"
               required
             />
           </div>
