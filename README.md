@@ -44,6 +44,10 @@ eye-scgpt-platform/
 git clone <repository-url>
 cd eye-scgpt-platform
 
+# For mac user
+brew install git-lfs
+git lfs install
+
 # Start the entire platform
 docker-compose up --build
 
@@ -61,6 +65,8 @@ cd backend
 
 # Install dependencies
 pip install -r requirements.txt
+or
+pip install scgpt ipython "torch==2.3.0"
 
 # Setup test model
 python setup_model.py
@@ -77,6 +83,9 @@ cd frontend
 
 # Install dependencies
 npm install
+
+# For mac user
+npm install web-vitals
 
 # Start development server
 npm start
