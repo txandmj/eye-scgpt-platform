@@ -59,6 +59,8 @@ def main():
         subprocess.run([
             sys.executable, '-m', 'uvicorn', 
             'main:app', 
+            '--limit-concurrency', '20',
+            '--workers', '2',
             '--host', '0.0.0.0', 
             '--port', '8000', 
             '--reload'
