@@ -67,7 +67,12 @@ def update_job_with_umap_results(job_info):
     print(f"   UMAP directory: {umap_dir}")
     
     # Count files in UMAP directory
-    png_files = list(umap_dir.glob("*.png"))
+    # Look for PNG files with the "umap" prefix pattern
+    png_files = []
+    for pattern in ["*.png", "umap*.png"]:
+        png_files.extend(umap_dir.glob(pattern))
+    png_files = list(set(png_files))  # Remove duplicates
+    
     h5ad_files = list(umap_dir.glob("*.h5ad"))
     
     print(f"   PNG files: {len(png_files)}")

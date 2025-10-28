@@ -167,6 +167,9 @@ def stage2_umapby(h5ad_file, output_dir, base_name=None, width=5, height=5):
             target_file = output_dir / plot_file.name
             plot_file.rename(target_file)
             logger.info(f"Moved {plot_file.name} to {target_file}")
+        
+        # After moving, get the actual moved files
+        generated_files = list(output_dir.glob(f"umap{base_name}_umap_*.png"))
     
     logger.info(f"Plot generation completed. Total plots generated: {len(generated_files)}")
     return generated_files
@@ -192,7 +195,7 @@ def run_two_stage_workflow(h5ad_file, metadata_file, output_dir, base_name=None)
     
     # Stage 1: Data Preparation
     enriched_h5ad_file = output_dir / f"{base_name}_enriched.h5ad"
-    stage1_output = stage1_addmetadata(h5ad_file, metadata_file, str(enriched_h5ad_file))
+    stage1_addmetadata(h5ad_file, metadata_file, str(enriched_h5ad_file))
     
     # Stage 2: Plot Generation
     plot_files = stage2_umapby(str(enriched_h5ad_file), output_dir, base_name)
