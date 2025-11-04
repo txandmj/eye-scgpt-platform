@@ -13,6 +13,7 @@ import logging
 from datetime import datetime
 import threading
 import tempfile
+from simple_umap_processor import run_two_stage_workflow
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -45,6 +46,25 @@ for directory in [UPLOAD_DIR, RESULTS_DIR, MODELS_DIR]:
 
 # In-memory job tracking (in production, use Redis or database)
 jobs = {}
+
+def load_existing_jobs():
+    """Load existing job data from files"""
+    jobs_dir = Path("jobs")
+    if not jobs_dir.exists():
+        return
+    
+    for job_file in jobs_dir.glob("*.json"):
+        try:
+            with open(job_file, 'r') as f:
+                job_data = json.load(f)
+                job_id = job_data['id']
+                jobs[job_id] = job_data
+                logger.info(f"Loaded existing job: {job_id}")
+        except Exception as e:
+            logger.warning(f"Failed to load job file {job_file}: {e}")
+
+# Load existing jobs on startup
+load_existing_jobs()
 
 # Job status enum
 class JobStatus:
@@ -220,14 +240,49 @@ async def process_annotation(job_id: str):
         final_predictions_file = results_dir / "predictions.csv"
         shutil.copy2(temp_predictions_file, final_predictions_file)
         
-        # Update job status
-        jobs[job_id]["status"] = JobStatus.COMPLETED
-        jobs[job_id]["end_time"] = datetime.now().isoformat()
-        jobs[job_id]["results"] = {
-            "predictions_file": str(final_predictions_file)
-        }
+        # Step 3: UMAP Processing
+        logger.info(f"Starting UMAP processing for job {job_id}")
+        umap_dir = results_dir / "umap"
+        umap_dir.mkdir(exist_ok=True)
         
-        logger.info(f"Annotation completed successfully for job {job_id}")
+        try:
+            # Run the simple two-stage UMAP workflow
+            umap_results = run_two_stage_workflow(
+                h5ad_file=str(uploaded_file),
+                metadata_file=str(final_predictions_file),
+                output_dir=str(umap_dir),
+                base_name=uploaded_file.stem
+            )
+            
+            logger.info(f"UMAP processing completed successfully for job {job_id}")
+            logger.info(f"Generated {umap_results['num_plots']} UMAP plots")
+            
+            # Update job status with complete results
+            jobs[job_id]["status"] = JobStatus.COMPLETED
+            jobs[job_id]["end_time"] = datetime.now().isoformat()
+            jobs[job_id]["results"] = {
+                "predictions_file": str(final_predictions_file),
+                "umap_results": umap_results,
+                "enriched_h5ad_file": umap_results["enriched_h5ad_file"],
+                "plot_files": umap_results["plot_files"],
+                "num_plots": umap_results["num_plots"]
+            }
+            
+            logger.info(f"Complete workflow finished successfully for job {job_id}")
+            
+        except Exception as umap_error:
+            logger.warning(f"UMAP processing failed for job {job_id}: {str(umap_error)}")
+            logger.warning("Continuing with annotation results only (no UMAP plots)")
+            
+            # Update job status with annotation results only
+            jobs[job_id]["status"] = JobStatus.COMPLETED
+            jobs[job_id]["end_time"] = datetime.now().isoformat()
+            jobs[job_id]["results"] = {
+                "predictions_file": str(final_predictions_file),
+                "umap_error": str(umap_error)
+            }
+            
+            logger.info(f"Annotation completed (without UMAP) for job {job_id}")
         
     except Exception as e:
         logger.error(f"Annotation failed for job {job_id}: {str(e)}")
@@ -281,12 +336,21 @@ async def download_results(job_id: str):
         with open(predictions_file, "r") as f:
             content = f.read()
         
-        return {
+        response_data = {
             "job_id": job_id,
             "filename": predictions_file.name,
             "content": content,
-            "download_url": f"/api/download/{job_id}/file"
+            "download_url": f"/api/download/{job_id}/file",
+            "umap_available": False
         }
+        
+        # Check if UMAP results are available
+        if "umap_results" in results:
+            response_data["umap_available"] = True
+            response_data["num_plots"] = results.get("num_plots", 0)
+            response_data["umap_download_url"] = f"/api/download/{job_id}/umap"
+        
+        return response_data
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error reading results: {str(e)}")
 
@@ -313,6 +377,52 @@ async def download_file(job_id: str):
         filename=predictions_file.name,
         media_type='text/csv'
     )
+
+@app.get("/api/download/{job_id}/umap")
+async def download_umap_results(job_id: str):
+    """Download UMAP results as a zip file"""
+    
+    if job_id not in jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    job = jobs[job_id]
+    if job["status"] != JobStatus.COMPLETED:
+        raise HTTPException(status_code=400, detail="Job is not completed yet")
+    
+    results = job["results"]
+    
+    if "umap_results" not in results:
+        raise HTTPException(status_code=404, detail="UMAP results not available")
+    
+    umap_results = results["umap_results"]
+    
+    # Create a zip file with all UMAP results
+    import zipfile
+    import io
+    
+    zip_buffer = io.BytesIO()
+    
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+        # Add enriched h5ad file
+        enriched_h5ad_path = Path(umap_results["enriched_h5ad_file"])
+        if enriched_h5ad_path.exists():
+            zip_file.write(enriched_h5ad_path, enriched_h5ad_path.name)
+        
+        # Add plot files
+        for plot_file in umap_results["plot_files"]:
+            plot_path = Path(plot_file)
+            if plot_path.exists():
+                zip_file.write(plot_path, plot_path.name)
+    
+    zip_buffer.seek(0)
+    
+    from fastapi.responses import Response
+    return Response(
+        content=zip_buffer.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename=umap_results_{job_id}.zip"}
+    )
+
 
 # Get the backend directory path
 backend_dir = Path(__file__).parent
