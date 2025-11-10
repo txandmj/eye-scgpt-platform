@@ -1,6 +1,6 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse, Response
 import os
 import uuid
 import shutil
@@ -349,6 +349,14 @@ async def download_results(job_id: str):
             response_data["umap_available"] = True
             response_data["num_plots"] = results.get("num_plots", 0)
             response_data["umap_download_url"] = f"/api/download/{job_id}/umap"
+            plot_files = results.get("plot_files", [])
+            preview_plot = next(
+                (pf for pf in plot_files if pf.endswith("_umap_predictions_wolabel.png")),
+                None
+            )
+            if preview_plot and Path(preview_plot).exists():
+                response_data["umap_preview_url"] = f"/api/download/{job_id}/umap/preview"
+                response_data["umap_preview_filename"] = Path(preview_plot).name
         
         return response_data
     except Exception as e:
@@ -371,7 +379,6 @@ async def download_file(job_id: str):
     if not predictions_file.exists():
         raise HTTPException(status_code=404, detail="Results file not found")
     
-    from fastapi.responses import FileResponse
     return FileResponse(
         path=predictions_file,
         filename=predictions_file.name,
@@ -416,11 +423,46 @@ async def download_umap_results(job_id: str):
     
     zip_buffer.seek(0)
     
-    from fastapi.responses import Response
     return Response(
         content=zip_buffer.getvalue(),
         media_type="application/zip",
         headers={"Content-Disposition": f"attachment; filename=umap_results_{job_id}.zip"}
+    )
+
+
+@app.get("/api/download/{job_id}/umap/preview")
+async def get_umap_preview(job_id: str):
+    """Return the UMAP predictions_wolabel plot for quick preview"""
+
+    if job_id not in jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    job = jobs[job_id]
+    if job["status"] != JobStatus.COMPLETED:
+        raise HTTPException(status_code=400, detail="Job is not completed yet")
+
+    results = job["results"]
+
+    if "umap_results" not in results:
+        raise HTTPException(status_code=404, detail="UMAP results not available")
+
+    plot_files = results.get("plot_files", [])
+    preview_plot = next(
+        (pf for pf in plot_files if pf.endswith("_umap_predictions_wolabel.png")),
+        None
+    )
+
+    if not preview_plot:
+        raise HTTPException(status_code=404, detail="UMAP preview not available")
+
+    preview_path = Path(preview_plot)
+    if not preview_path.exists():
+        raise HTTPException(status_code=404, detail="UMAP preview file missing")
+
+    return FileResponse(
+        path=preview_path,
+        filename=preview_path.name,
+        media_type="image/png"
     )
 
 

@@ -8,6 +8,8 @@ function Download({ jobId }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [inputJobId, setInputJobId] = useState('');
+  const [umapPreviewUrl, setUmapPreviewUrl] = useState(null);
+  const [umapPreviewFilename, setUmapPreviewFilename] = useState('');
 
   useEffect(() => {
     if (jobId) {
@@ -19,11 +21,15 @@ function Download({ jobId }) {
   const fetchResults = async (id) => {
     if (!id) {
       setError('Please enter a Job ID');
+      setUmapPreviewUrl(null);
+      setUmapPreviewFilename('');
       return;
     }
 
     setLoading(true);
     setError('');
+    setUmapPreviewUrl(null);
+    setUmapPreviewFilename('');
 
     try {
       const response = await axios.get(`${API_URL}/api/job/${id}`);
@@ -57,6 +63,11 @@ function Download({ jobId }) {
             description: `UMAP visualizations (${downloadData.num_plots} plots)`,
             numPlots: downloadData.num_plots
           });
+
+          if (downloadData.umap_preview_url) {
+            setUmapPreviewUrl(`${API_URL}${downloadData.umap_preview_url}`);
+            setUmapPreviewFilename(downloadData.umap_preview_filename || 'UMAP predictions preview');
+          }
         }
         
         setResults(availableResults);
@@ -67,6 +78,8 @@ function Download({ jobId }) {
     } catch (err) {
       setError(`Failed to fetch results: ${err.response?.data?.detail || err.message}`);
       setResults([]);
+      setUmapPreviewUrl(null);
+      setUmapPreviewFilename('');
     } finally {
       setLoading(false);
     }
@@ -133,6 +146,20 @@ function Download({ jobId }) {
         {error && (
           <div className="message error">
             ❌ {error}
+          </div>
+        )}
+
+        {umapPreviewUrl && (
+          <div className="umap-preview">
+            <h3>UMAP Preview (Predictions)</h3>
+            <img
+              src={umapPreviewUrl}
+              alt="UMAP predictions visualization"
+              loading="lazy"
+            />
+            <p className="preview-caption">
+              {umapPreviewFilename} — download the UMAP archive for the complete collection.
+            </p>
           </div>
         )}
 
