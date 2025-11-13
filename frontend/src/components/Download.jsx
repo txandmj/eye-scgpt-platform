@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { getAuthHeaders } from '../auth';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
@@ -26,7 +27,7 @@ function Download({ jobId }) {
     setError('');
 
     try {
-      const response = await axios.get(`${API_URL}/api/job/${id}`);
+      const response = await axios.get(`${API_URL}/api/job/${id}`, { headers: getAuthHeaders() });
       const job = response.data;
       
       if (job.status === 'pending' || job.status === 'processing') {
@@ -37,7 +38,7 @@ function Download({ jobId }) {
         setResults([]);
       } else if (job.status === 'completed' && job.results) {
         // Fetch the actual results
-        const downloadResponse = await axios.get(`${API_URL}/api/download/${id}`);
+        const downloadResponse = await axios.get(`${API_URL}/api/download/${id}`, { headers: getAuthHeaders() });
         const downloadData = downloadResponse.data;
         
         const availableResults = [{
@@ -72,13 +73,24 @@ function Download({ jobId }) {
     }
   };
 
-  const handleDownload = (file) => {
-    if (file.downloadUrl) {
-      window.open(`${API_URL}${file.downloadUrl}`, '_blank');
-    } else {
-      // Fallback to direct file download
-      const downloadUrl = `${API_URL}/api/download/${inputJobId}/file`;
-      window.open(downloadUrl, '_blank');
+  const handleDownload = async (file) => {
+    try {
+      const url = file.downloadUrl ? `${API_URL}${file.downloadUrl}` : `${API_URL}/api/download/${inputJobId}/file`;
+      const resp = await axios.get(url, { responseType: 'blob', headers: getAuthHeaders() });
+      // infer filename
+      let filename = file.filename || 'download';
+      const disp = resp.headers['content-disposition'] || '';
+      const m = /filename=([^;]+)/i.exec(disp);
+      if (m) filename = decodeURIComponent(m[1].replace(/\"/g, ''));
+      const blob = new Blob([resp.data]);
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      setTimeout(()=>{ URL.revokeObjectURL(link.href); link.remove(); }, 1000);
+    } catch (e) {
+      setError(`Download failed: ${e?.response?.data?.detail || e.message}`);
     }
   };
 

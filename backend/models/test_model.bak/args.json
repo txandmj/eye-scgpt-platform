@@ -1,0 +1,23 @@
+{
+  "ntokens": 6,
+  "embsize": 512,
+  "nhead": 8,
+  "d_hid": 512,
+  "nlayers": 6,
+  "nlayers_cls": 2,
+  "n_cls": 10,
+  "dropout": 0.1,
+  "pad_token": "<pad>",
+  "pad_value": 0,
+  "do_mvc": true,
+  "do_dab": false,
+  "use_batch_labels": false,
+  "domain_spec_batchnorm": false,
+  "input_emb_style": "continuous",
+  "n_input_bins": 5,
+  "cell_emb_style": "cls",
+  "ecs_threshold": 0.8,
+  "use_fast_transformer": false,
+  "fast_transformer_backend": "flash",
+  "pre_norm": false
+}

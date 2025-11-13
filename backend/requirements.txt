@@ -48,6 +48,11 @@ pytest>=7.4.0
 pytest-asyncio>=0.21.0
 httpx>=0.25.0
 
+# Database
+SQLAlchemy>=2.0.23
+alembic>=1.13.1
+psycopg2-binary>=2.9.9
+
 # Note: For GPU support, after installation run:
 # pip uninstall torch torchvision torchaudio
 # pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118

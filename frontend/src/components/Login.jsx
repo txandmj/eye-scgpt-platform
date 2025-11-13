@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 
-function Login({ setActiveTab }) {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [message, setMessage] = useState('');
+function Login({ setActiveTab, onSuccess }) {
+  // Google-only UI
+  // We keep minimal internal state; errors shown inline if any
+  // Navigation is hidden by App on login route
+  const [error, setError] = React.useState('');
+  const [message, setMessage] = React.useState('');
   const googleBtnRef = useRef(null);
 
   const GOOGLE_CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID || '978070226745-cpevojet4d29ep33vm1vm88mr9st4osm.apps.googleusercontent.com';
@@ -33,7 +33,6 @@ function Login({ setActiveTab }) {
         use_fedcm_for_prompt_api: false,
         callback: async (response) => {
           try {
-            setLoading(true);
             setError('');
             setMessage('');
 
@@ -64,10 +63,16 @@ function Login({ setActiveTab }) {
 
             const data = await res.json();
             setMessage(`Welcome ${data.name || data.email || 'user'}!`);
+            // Persist auth headers for subsequent API calls
+            try {
+              const { setAuthFromGoogle } = await import('../auth');
+              setAuthFromGoogle(credential, { email: data.email, name: data.name });
+            } catch (_) {
+              // ignore store errors
+            }
+            if (onSuccess) onSuccess();
           } catch (err) {
             setError(err?.message || 'Google login failed. Please try again.');
-          } finally {
-            setLoading(false);
           }
         }
       });
@@ -100,117 +105,25 @@ function Login({ setActiveTab }) {
     return () => {
       if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [GOOGLE_CLIENT_ID, setActiveTab]);
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
-    setMessage('');
-
-    try {
-      // For now, this is a placeholder login
-      // In production, you would implement actual authentication
-      if (email && password) {
-        setMessage('Login successful! (Demo mode)');
-      } else {
-        setError('Please enter both email and password');
-      }
-    } catch (err) {
-      setError('Login failed. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [GOOGLE_CLIENT_ID, setActiveTab, onSuccess]);
 
   return (
     <div className="login-container">
-      <div className="card">
-        <h2>🔐 Login</h2>
-        <p className="subtitle">
-          Access your account to manage your annotation jobs
-        </p>
-
-        <div style={{ marginBottom: '16px' }}>
-          <div ref={googleBtnRef} style={{ display: 'inline-block' }} />
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '12px 0' }}>
-          <div style={{ height: 1, background: '#eee', flex: 1 }} />
-          <div style={{ color: '#999', fontSize: 12 }}>or</div>
-          <div style={{ height: 1, background: '#eee', flex: 1 }} />
-        </div>
-
-        <form onSubmit={handleSubmit} className="login-form">
-          <div className="form-group">
-            <label htmlFor="email">Email:</label>
-            <input
-              id="email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="your.email@example.com"
-              className="text-input"
-              autoComplete="email"
-              required
-            />
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="password">Password:</label>
-            <input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Enter your password"
-              className="text-input"
-              autoComplete="current-password"
-              required
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="btn btn-primary"
-          >
-            {loading ? '⏳ Logging in...' : '🚀 Login'}
-          </button>
-        </form>
-
+      <div className="card" style={{ maxWidth: 420, margin: '0 auto', textAlign: 'center' }}>
+        <h2>🔐 Sign in</h2>
+        <p className="subtitle">Sign in with your Google account to continue</p>
+        <div ref={googleBtnRef} style={{ display: 'inline-block', marginTop: 12 }} />
+        <p style={{ color: '#777', fontSize: 12, marginTop: 8 }}>Use your institutional Google account</p>
         {message && !error && (
-          <div className="message success">
+          <div className="message success" style={{ marginTop: 12 }}>
             ✅ {message}
           </div>
         )}
-
         {error && (
-          <div className="message error">
+          <div className="message error" style={{ marginTop: 12 }}>
             ❌ {error}
           </div>
         )}
-
-        <div className="login-links">
-          <p>
-            Don't have an account?{' '}
-            <button 
-              className="link-button" 
-              onClick={() => setActiveTab('account')}
-            >
-              Create Account
-            </button>
-          </p>
-          <p>
-            <button className="link-button">Forgot Password?</button>
-          </p>
-        </div>
-
-        <div className="info-box">
-          <h3>📝 Demo Mode:</h3>
-          <p>This is a demonstration version. In production, this would connect to a secure authentication system.</p>
-          <p>You can use any email and password to "login" for demo purposes.</p>
-        </div>
       </div>
     </div>
   );

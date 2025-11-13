@@ -212,3 +212,7 @@ __marimo__/
 uploads/
 results/
 wandb/
+
+# Secrets and local artifacts
+backend/client_secret_*.json
+backend/app.db

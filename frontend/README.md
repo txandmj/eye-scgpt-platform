@@ -14,6 +14,17 @@ Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
 The page will reload when you make changes.\
 You may also see any lint errors in the console.
 
+## Authentication (Google-only)
+The UI uses Google Sign-In exclusively.
+
+- Visit `#/login` to sign in. The page shows a centered Google button and brief instructions.
+- After a successful sign-in you will be redirected to `#/upload`. If you are not signed in and attempt to access `#/upload`, `#/download`, or `#/history`, you will be redirected to `#/login`.
+- Email/password login and the “Account” page have been removed.
+
+### How to log out
+- On any protected page, click “🚪 Logout” in the top navigation (right side).
+- This clears local authentication and returns you to `#/login`. Accessing protected routes after logout will redirect back to the login page.
+
 ### `npm test`
 
 Launches the test runner in the interactive watch mode.\

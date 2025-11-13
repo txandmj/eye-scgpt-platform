@@ -1,4 +1,5 @@
 import React from 'react';
+import { isAuthenticated, logout } from '../auth';
 
 function Navigation({ activeTab, setActiveTab }) {
   return (
@@ -21,17 +22,12 @@ function Navigation({ activeTab, setActiveTab }) {
       >
         📚 Tutorial
       </button>
+      {/* Login and Account removed from global nav in Google-only mode */}
       <button
-        className={`nav-button ${activeTab === 'login' ? 'active' : ''}`}
-        onClick={() => setActiveTab('login')}
+        className={`nav-button ${activeTab === 'history' ? 'active' : ''}`}
+        onClick={() => setActiveTab('history')}
       >
-        🔐 Login
-      </button>
-      <button
-        className={`nav-button ${activeTab === 'account' ? 'active' : ''}`}
-        onClick={() => setActiveTab('account')}
-      >
-        👤 Account
+        🕘 History
       </button>
       <button
         className={`nav-button ${activeTab === 'contact' ? 'active' : ''}`}
@@ -39,6 +35,21 @@ function Navigation({ activeTab, setActiveTab }) {
       >
         📞 Contact Us
       </button>
+      {isAuthenticated() && (
+        <div style={{ marginLeft: 'auto' }}>
+          <button
+            className="nav-button"
+            onClick={async () => {
+              if (!window.confirm('Are you sure you want to log out?')) return;
+              await logout();
+              alert("You've been logged out.");
+              window.location.hash = '#/login';
+            }}
+          >
+            🚪 Logout
+          </button>
+        </div>
+      )}
     </nav>
   );
 }

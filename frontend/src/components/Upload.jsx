@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import axios from 'axios';
+import { getAuthHeaders } from '../auth';
 
 const rawBase = process.env.REACT_APP_API_BASE || process.env.REACT_APP_API_URL || 'http://localhost:8000';
 const normalizeBase = (url) => {
@@ -53,6 +54,7 @@ function Upload({ onUploadSuccess }) {
       const response = await axios.post(`${API_BASE}/api/upload`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
+          ...getAuthHeaders(),
         },
         onUploadProgress: (progressEvent) => {
           const percentCompleted = Math.round(
@@ -80,7 +82,7 @@ function Upload({ onUploadSuccess }) {
     setMessage('Running annotation... This may take a few minutes.');
 
     try {
-      const response = await axios.post(`${API_BASE}/api/annotate/${uploadedJobId}`);
+      const response = await axios.post(`${API_BASE}/api/annotate/${uploadedJobId}`, null, { headers: getAuthHeaders() });
       
       setMessage('Annotation completed successfully!');
       setAnnotating(false);
