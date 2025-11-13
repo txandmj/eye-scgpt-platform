@@ -42,7 +42,7 @@ function Login({ setActiveTab }) {
               console.error('[Google Sign-In] No credential returned. Likely origin mismatch.', {
                 origin: window.location.origin,
               });
-              setError(`Google 登录失败：未获得凭证。请在 Google 控制台的 Authorized JavaScript origins 中添加 ${window.location.origin}`);
+              setError(`Google sign-in failed: no credential returned. Add ${window.location.origin} to Authorized JavaScript origins in Google Cloud Console.`);
               return;
             }
             const res = await fetch(`${API_BASE}/google-login`, {

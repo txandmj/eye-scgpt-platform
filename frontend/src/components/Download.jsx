@@ -38,11 +38,28 @@ function Download({ jobId }) {
       } else if (job.status === 'completed' && job.results) {
         // Fetch the actual results
         const downloadResponse = await axios.get(`${API_URL}/api/download/${id}`);
-        setResults([{
-          filename: downloadResponse.data.filename,
-          content: downloadResponse.data.content,
-          downloadUrl: downloadResponse.data.download_url
-        }]);
+        const downloadData = downloadResponse.data;
+        
+        const availableResults = [{
+          filename: downloadData.filename,
+          content: downloadData.content,
+          downloadUrl: downloadData.download_url,
+          type: 'csv',
+          description: 'Eye-scGPT predictions'
+        }];
+        
+        // Add UMAP results if available
+        if (downloadData.umap_available) {
+          availableResults.push({
+            filename: `umap_results_${id}.zip`,
+            downloadUrl: downloadData.umap_download_url,
+            type: 'zip',
+            description: `UMAP visualizations (${downloadData.num_plots} plots)`,
+            numPlots: downloadData.num_plots
+          });
+        }
+        
+        setResults(availableResults);
       } else {
         setError('No results found for this Job ID.');
         setResults([]);
@@ -73,11 +90,14 @@ function Download({ jobId }) {
     return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
   };
 
-  const getFileIcon = (filename) => {
+  const getFileIcon = (filename, type) => {
+    if (type === 'csv') return '📊';
+    if (type === 'zip') return '📦';
     if (filename.endsWith('.csv')) return '📊';
     if (filename.endsWith('.xlsx')) return '📈';
     if (filename.endsWith('.h5ad')) return '🔬';
     if (filename.endsWith('.png') || filename.endsWith('.jpg')) return '🖼️';
+    if (filename.endsWith('.zip')) return '📦';
     return '📄';
   };
 
@@ -123,9 +143,10 @@ function Download({ jobId }) {
               {results.map((file, index) => (
                 <div key={index} className="result-item">
                   <div className="file-details">
-                    <span className="file-icon">{getFileIcon(file.filename)}</span>
+                    <span className="file-icon">{getFileIcon(file.filename, file.type)}</span>
                     <div className="file-name-size">
                       <strong>{file.filename}</strong>
+                      <span className="file-description">{file.description}</span>
                       <span className="file-size">Ready for download</span>
                     </div>
                   </div>
@@ -151,17 +172,22 @@ function Download({ jobId }) {
         <div className="info-box">
           <h3>📋 Result Files:</h3>
           <ul>
-            <li><strong>*_annotations.csv</strong> - Cell type annotations in CSV format</li>
-            <li><strong>*_annotations.xlsx</strong> - Cell type annotations in Excel format</li>
-            <li><strong>*_annotated.h5ad</strong> - Annotated AnnData object with predictions</li>
-            <li><strong>*_umap.png</strong> - UMAP visualization with cell type labels</li>
+            <li><strong>predictions.csv</strong> - Eye-scGPT cell type predictions in CSV format</li>
+            <li><strong>umap_results_*.zip</strong> - UMAP visualizations including:
+              <ul>
+                <li>Enhanced h5ad file with merged metadata</li>
+                <li>Multiple PNG plots for each metadata column</li>
+                <li>Different visualization styles (wolabel, ondata, fontline)</li>
+              </ul>
+            </li>
           </ul>
           
           <h3>💡 Tips:</h3>
           <ul>
             <li>Save your Job ID to retrieve results later</li>
+            <li>Download both CSV and UMAP files for complete analysis</li>
+            <li>UMAP plots show cell type predictions on 2D projections</li>
             <li>Results are retained for 30 days</li>
-            <li>Download all files for complete analysis</li>
           </ul>
         </div>
       </div>
