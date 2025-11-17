@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { getAuthHeaders } from '../auth';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
@@ -32,7 +33,7 @@ function Download({ jobId }) {
     setUmapPreviewFilename('');
 
     try {
-      const response = await axios.get(`${API_URL}/api/job/${id}`);
+      const response = await axios.get(`${API_URL}/api/job/${id}`, { headers: getAuthHeaders() });
       const job = response.data;
       
       if (job.status === 'pending' || job.status === 'processing') {
@@ -43,7 +44,7 @@ function Download({ jobId }) {
         setResults([]);
       } else if (job.status === 'completed' && job.results) {
         // Fetch the actual results
-        const downloadResponse = await axios.get(`${API_URL}/api/download/${id}`);
+        const downloadResponse = await axios.get(`${API_URL}/api/download/${id}`, { headers: getAuthHeaders() });
         const downloadData = downloadResponse.data;
         
         const availableResults = [{
@@ -65,8 +66,19 @@ function Download({ jobId }) {
           });
 
           if (downloadData.umap_preview_url) {
-            setUmapPreviewUrl(`${API_URL}${downloadData.umap_preview_url}`);
-            setUmapPreviewFilename(downloadData.umap_preview_filename || 'UMAP predictions preview');
+            // Fetch preview as blob with auth headers and create object URL
+            try {
+              const previewResponse = await axios.get(
+                `${API_URL}${downloadData.umap_preview_url}`,
+                { responseType: 'blob', headers: getAuthHeaders() }
+              );
+              const blobUrl = window.URL.createObjectURL(previewResponse.data);
+              setUmapPreviewUrl(blobUrl);
+              setUmapPreviewFilename(downloadData.umap_preview_filename || 'UMAP predictions preview');
+            } catch (err) {
+              console.error('Failed to load UMAP preview:', err);
+              // Preview not critical, continue without it
+            }
           }
         }
         
@@ -85,13 +97,31 @@ function Download({ jobId }) {
     }
   };
 
-  const handleDownload = (file) => {
-    if (file.downloadUrl) {
-      window.open(`${API_URL}${file.downloadUrl}`, '_blank');
-    } else {
-      // Fallback to direct file download
-      const downloadUrl = `${API_URL}/api/download/${inputJobId}/file`;
-      window.open(downloadUrl, '_blank');
+  const handleDownload = async (file) => {
+    try {
+      let downloadUrl = file.downloadUrl || `/api/download/${inputJobId}/file`;
+      if (!downloadUrl.startsWith('http')) {
+        downloadUrl = `${API_URL}${downloadUrl}`;
+      }
+      
+      // Use axios to download with auth headers
+      const response = await axios.get(downloadUrl, {
+        responseType: 'blob',
+        headers: getAuthHeaders()
+      });
+      
+      // Create a blob URL and trigger download
+      const blob = new Blob([response.data]);
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = file.filename || 'download';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(`Download failed: ${err.response?.data?.detail || err.message}`);
     }
   };
 
