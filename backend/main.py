@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks
+from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse, Response
 import os
@@ -7,13 +7,14 @@ import shutil
 import subprocess
 import asyncio
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, Any
 import json
 import logging
 from datetime import datetime
 import threading
 import tempfile
 from simple_umap_processor import run_two_stage_workflow
+from app import auth_router
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -24,6 +25,9 @@ app = FastAPI(
     description="API for single-cell omics data annotation using scGPT",
     version="1.0.0"
 )
+
+# Include auth router
+app.include_router(auth_router.router)
 
 # CORS middleware
 app.add_middleware(
@@ -73,6 +77,22 @@ class JobStatus:
     COMPLETED = "completed"
     FAILED = "failed"
 
+
+# Authentication dependency - simplified version for header-based auth
+async def require_auth(
+    x_google_sub: Optional[str] = Header(default=None, alias="X-Google-Sub"),
+) -> Dict[str, Any]:
+    """Require authentication - returns user info or raises exception"""
+    if not x_google_sub:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required. Please sign in with Google."
+        )
+    return {
+        "google_sub": x_google_sub,
+        "authenticated": True
+    }
+
 @app.get("/")
 async def root():
     return {"message": "Eye-scGPT Annotation Platform API", "version": "1.0.0"}
@@ -82,8 +102,11 @@ async def health_check():
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
 
 @app.post("/api/upload")
-async def upload_file(file: UploadFile = File(...)):
-    """Upload a file and create a job for processing"""
+async def upload_file(
+    file: UploadFile = File(...),
+    user: Dict[str, Any] = Depends(require_auth)
+):
+    """Upload a file and create a job for processing (requires authentication)"""
     
     # Validate file type
     if not file.filename.lower().endswith('.h5ad'):
@@ -114,7 +137,8 @@ async def upload_file(file: UploadFile = File(...)):
         "start_time": None,
         "end_time": None,
         "error": None,
-        "results": None
+        "results": None,
+        "user_id": user.get("google_sub")  # Track user who uploaded
     }
     
     logger.info(f"File uploaded successfully: {file.filename}, Job ID: {job_id}")
@@ -126,11 +150,20 @@ async def upload_file(file: UploadFile = File(...)):
     }
 
 @app.post("/api/annotate/{job_id}")
-async def start_annotation(job_id: str, background_tasks: BackgroundTasks):
-    """Start the annotation process for a specific job"""
+async def start_annotation(
+    job_id: str,
+    background_tasks: BackgroundTasks,
+    user: Dict[str, Any] = Depends(require_auth)
+):
+    """Start the annotation process for a specific job (requires authentication)"""
     
     if job_id not in jobs:
         raise HTTPException(status_code=404, detail="Job not found")
+    
+    # Verify user owns this job
+    job_user_id = jobs[job_id].get("user_id")
+    if job_user_id and job_user_id != user.get("google_sub"):
+        raise HTTPException(status_code=403, detail="You don't have permission to access this job")
     
     if jobs[job_id]["status"] != JobStatus.PENDING:
         raise HTTPException(status_code=400, detail="Job is not in pending status")
@@ -301,27 +334,49 @@ async def process_annotation(job_id: str):
 
 
 @app.get("/api/job/{job_id}")
-async def get_job_status(job_id: str):
-    """Get the status of a specific job"""
+async def get_job_status(
+    job_id: str,
+    user: Dict[str, Any] = Depends(require_auth)
+):
+    """Get the status of a specific job (requires authentication)"""
     
     if job_id not in jobs:
         raise HTTPException(status_code=404, detail="Job not found")
     
+    # Verify user owns this job
+    job_user_id = jobs[job_id].get("user_id")
+    if job_user_id and job_user_id != user.get("google_sub"):
+        raise HTTPException(status_code=403, detail="You don't have permission to access this job")
+    
     return jobs[job_id]
 
 @app.get("/api/jobs")
-async def list_jobs():
-    """List all jobs"""
-    return {"jobs": list(jobs.values())}
+async def list_jobs(user: Dict[str, Any] = Depends(require_auth)):
+    """List all jobs for the authenticated user (requires authentication)"""
+    user_id = user.get("google_sub")
+    user_jobs = [
+        job for job in jobs.values()
+        if not job.get("user_id") or job.get("user_id") == user_id
+    ]
+    return {"jobs": user_jobs}
 
 @app.get("/api/download/{job_id}")
-async def download_results(job_id: str):
-    """Download the results of a completed job"""
+async def download_results(
+    job_id: str,
+    user: Dict[str, Any] = Depends(require_auth)
+):
+    """Download the results of a completed job (requires authentication)"""
     
     if job_id not in jobs:
         raise HTTPException(status_code=404, detail="Job not found")
     
     job = jobs[job_id]
+    
+    # Verify user owns this job
+    job_user_id = job.get("user_id")
+    if job_user_id and job_user_id != user.get("google_sub"):
+        raise HTTPException(status_code=403, detail="You don't have permission to access this job")
+    
     if job["status"] != JobStatus.COMPLETED:
         raise HTTPException(status_code=400, detail="Job is not completed yet")
     
@@ -363,13 +418,22 @@ async def download_results(job_id: str):
         raise HTTPException(status_code=500, detail=f"Error reading results: {str(e)}")
 
 @app.get("/api/download/{job_id}/file")
-async def download_file(job_id: str):
-    """Download the actual results file"""
+async def download_file(
+    job_id: str,
+    user: Dict[str, Any] = Depends(require_auth)
+):
+    """Download the actual results file (requires authentication)"""
     
     if job_id not in jobs:
         raise HTTPException(status_code=404, detail="Job not found")
     
     job = jobs[job_id]
+    
+    # Verify user owns this job
+    job_user_id = job.get("user_id")
+    if job_user_id and job_user_id != user.get("google_sub"):
+        raise HTTPException(status_code=403, detail="You don't have permission to access this job")
+    
     if job["status"] != JobStatus.COMPLETED:
         raise HTTPException(status_code=400, detail="Job is not completed yet")
     
@@ -386,13 +450,22 @@ async def download_file(job_id: str):
     )
 
 @app.get("/api/download/{job_id}/umap")
-async def download_umap_results(job_id: str):
-    """Download UMAP results as a zip file"""
+async def download_umap_results(
+    job_id: str,
+    user: Dict[str, Any] = Depends(require_auth)
+):
+    """Download UMAP results as a zip file (requires authentication)"""
     
     if job_id not in jobs:
         raise HTTPException(status_code=404, detail="Job not found")
     
     job = jobs[job_id]
+    
+    # Verify user owns this job
+    job_user_id = job.get("user_id")
+    if job_user_id and job_user_id != user.get("google_sub"):
+        raise HTTPException(status_code=403, detail="You don't have permission to access this job")
+    
     if job["status"] != JobStatus.COMPLETED:
         raise HTTPException(status_code=400, detail="Job is not completed yet")
     
@@ -431,13 +504,22 @@ async def download_umap_results(job_id: str):
 
 
 @app.get("/api/download/{job_id}/umap/preview")
-async def get_umap_preview(job_id: str):
-    """Return the UMAP predictions_wolabel plot for quick preview"""
+async def get_umap_preview(
+    job_id: str,
+    user: Dict[str, Any] = Depends(require_auth)
+):
+    """Return the UMAP predictions_wolabel plot for quick preview (requires authentication)"""
 
     if job_id not in jobs:
         raise HTTPException(status_code=404, detail="Job not found")
 
     job = jobs[job_id]
+    
+    # Verify user owns this job
+    job_user_id = job.get("user_id")
+    if job_user_id and job_user_id != user.get("google_sub"):
+        raise HTTPException(status_code=403, detail="You don't have permission to access this job")
+    
     if job["status"] != JobStatus.COMPLETED:
         raise HTTPException(status_code=400, detail="Job is not completed yet")
 

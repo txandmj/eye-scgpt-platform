@@ -23,10 +23,23 @@ body {
 
 /* Header */
 .App-header {
-  text-align: center;
   color: white;
   padding: 40px 20px;
   margin-bottom: 30px;
+}
+
+.header-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+
+.header-title {
+  text-align: center;
+  flex: 1;
+  min-width: 300px;
 }
 
 .App-header h1 {
@@ -38,6 +51,46 @@ body {
 .App-header p {
   font-size: 1.2em;
   opacity: 0.9;
+}
+
+.user-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 5px;
+  background: rgba(255, 255, 255, 0.1);
+  padding: 12px 20px;
+  border-radius: 8px;
+  backdrop-filter: blur(10px);
+  min-width: 200px;
+}
+
+.user-name {
+  font-size: 1.1em;
+  font-weight: 600;
+  color: white;
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+.user-email {
+  font-size: 0.9em;
+  color: rgba(255, 255, 255, 0.8);
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+@media (max-width: 768px) {
+  .header-content {
+    flex-direction: column;
+  }
+  
+  .user-info {
+    align-items: center;
+    width: 100%;
+  }
+  
+  .header-title {
+    width: 100%;
+  }
 }
 
 /* Navigation */
