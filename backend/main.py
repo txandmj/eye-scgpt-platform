@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks, Depends, Header
+from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks, Depends, Header, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse, Response
 import os
@@ -13,6 +13,7 @@ import logging
 from datetime import datetime
 import threading
 import tempfile
+from pydantic import BaseModel
 from simple_umap_processor import run_two_stage_workflow
 from app import auth_router
 
@@ -45,7 +46,8 @@ MODELS_DIR = Path("models")
 TEST_MODEL_DIR = MODELS_DIR / "test_model"
 
 # Create directories if they don't exist
-for directory in [UPLOAD_DIR, RESULTS_DIR, MODELS_DIR]:
+JOBS_DIR = Path("jobs")
+for directory in [UPLOAD_DIR, RESULTS_DIR, MODELS_DIR, JOBS_DIR]:
     directory.mkdir(exist_ok=True)
 
 # In-memory job tracking (in production, use Redis or database)
@@ -53,11 +55,10 @@ jobs = {}
 
 def load_existing_jobs():
     """Load existing job data from files"""
-    jobs_dir = Path("jobs")
-    if not jobs_dir.exists():
+    if not JOBS_DIR.exists():
         return
     
-    for job_file in jobs_dir.glob("*.json"):
+    for job_file in JOBS_DIR.glob("*.json"):
         try:
             with open(job_file, 'r') as f:
                 job_data = json.load(f)
@@ -67,15 +68,26 @@ def load_existing_jobs():
         except Exception as e:
             logger.warning(f"Failed to load job file {job_file}: {e}")
 
+def save_job_to_file(job_id: str, job_data: dict):
+    """Save job data to file for persistence"""
+    try:
+        job_file = JOBS_DIR / f"{job_id}.json"
+        with open(job_file, 'w') as f:
+            json.dump(job_data, f, indent=2)
+    except Exception as e:
+        logger.warning(f"Failed to save job file for {job_id}: {e}")
+
 # Load existing jobs on startup
 load_existing_jobs()
 
 # Job status enum
 class JobStatus:
+    UPLOADING = "uploading"  # Job created, file is being uploaded
     PENDING = "pending"
     PROCESSING = "processing"
     COMPLETED = "completed"
     FAILED = "failed"
+    CANCELLED = "cancelled"  # Job was cancelled by user
 
 
 # Authentication dependency - simplified version for header-based auth
@@ -101,17 +113,16 @@ async def root():
 async def health_check():
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
 
-@app.post("/api/upload")
-async def upload_file(
-    file: UploadFile = File(...),
+class PrepareUploadRequest(BaseModel):
+    filename: str
+
+@app.post("/api/upload/prepare")
+async def prepare_upload(
+    request: PrepareUploadRequest,
     user: Dict[str, Any] = Depends(require_auth)
 ):
-    """Upload a file and create a job for processing (requires authentication)"""
-    
-    # Validate file type
-    if not file.filename.lower().endswith('.h5ad'):
-        raise HTTPException(status_code=400, detail="Only .h5ad files are supported")
-    
+    """Create a job before upload starts - returns job_id immediately"""
+    filename = request.filename
     # Generate unique job ID
     job_id = str(uuid.uuid4())
     
@@ -119,34 +130,142 @@ async def upload_file(
     job_dir = UPLOAD_DIR / job_id
     job_dir.mkdir(exist_ok=True)
     
-    # Save uploaded file
-    file_path = job_dir / file.filename
-    try:
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-    except Exception as e:
-        logger.error(f"Error saving file: {e}")
-        raise HTTPException(status_code=500, detail="Failed to save uploaded file")
-    
-    # Initialize job status
+    # Initialize job status as UPLOADING
     jobs[job_id] = {
         "id": job_id,
-        "status": JobStatus.PENDING,
-        "filename": file.filename,
+        "status": JobStatus.UPLOADING,
+        "filename": filename,
         "upload_time": datetime.now().isoformat(),
         "start_time": None,
         "end_time": None,
         "error": None,
         "results": None,
-        "user_id": user.get("google_sub")  # Track user who uploaded
+        "user_id": user.get("google_sub")
     }
     
-    logger.info(f"File uploaded successfully: {file.filename}, Job ID: {job_id}")
+    # Save job to file immediately
+    save_job_to_file(job_id, jobs[job_id])
+    
+    logger.info(f"Prepared job {job_id} for file {filename}")
     
     return {
         "job_id": job_id,
-        "status": JobStatus.PENDING,
-        "message": "File uploaded successfully"
+        "status": JobStatus.UPLOADING,
+        "message": "Job created, ready for upload"
+    }
+
+@app.post("/api/upload")
+async def upload_file(
+    file: UploadFile = File(...),
+    job_id: Optional[str] = Form(None),
+    user: Dict[str, Any] = Depends(require_auth)
+):
+    """Upload a file for a prepared job or create new job (requires authentication)"""
+    
+    # Validate file type
+    if not file.filename.lower().endswith('.h5ad'):
+        raise HTTPException(status_code=400, detail="Only .h5ad files are supported")
+    
+    # If job_id provided, use existing job (from prepare_upload)
+    # Otherwise create new job (backward compatibility)
+    if job_id and job_id in jobs:
+        # Verify user owns this job
+        job_user_id = jobs[job_id].get("user_id")
+        if job_user_id and job_user_id != user.get("google_sub"):
+            raise HTTPException(status_code=403, detail="You don't have permission to access this job")
+        
+        # Verify job is in UPLOADING status
+        if jobs[job_id]["status"] != JobStatus.UPLOADING:
+            raise HTTPException(status_code=400, detail="Job is not in uploading status")
+        
+        job_dir = UPLOAD_DIR / job_id
+    else:
+        # Create new job (backward compatibility)
+        job_id = str(uuid.uuid4())
+        job_dir = UPLOAD_DIR / job_id
+        job_dir.mkdir(exist_ok=True)
+        
+        jobs[job_id] = {
+            "id": job_id,
+            "status": JobStatus.UPLOADING,
+            "filename": file.filename,
+            "upload_time": datetime.now().isoformat(),
+            "start_time": None,
+            "end_time": None,
+            "error": None,
+            "results": None,
+            "user_id": user.get("google_sub")
+        }
+        save_job_to_file(job_id, jobs[job_id])
+    
+    logger.info(f"Starting upload for job {job_id}, file: {file.filename}")
+    
+    # Save uploaded file
+    file_path = job_dir / file.filename
+    try:
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        
+        # Update job status to PENDING after successful upload
+        jobs[job_id]["status"] = JobStatus.PENDING
+        save_job_to_file(job_id, jobs[job_id])
+        
+        logger.info(f"File uploaded successfully: {file.filename}, Job ID: {job_id}")
+        
+        return {
+            "job_id": job_id,
+            "status": JobStatus.PENDING,
+            "message": "File uploaded successfully"
+        }
+    except Exception as e:
+        # Mark job as failed if upload fails
+        jobs[job_id]["status"] = JobStatus.FAILED
+        jobs[job_id]["error"] = f"Upload failed: {str(e)}"
+        jobs[job_id]["end_time"] = datetime.now().isoformat()
+        save_job_to_file(job_id, jobs[job_id])
+        
+        logger.error(f"Error saving file: {e}")
+        raise HTTPException(status_code=500, detail="Failed to save uploaded file")
+
+@app.post("/api/jobs/{job_id}/cancel")
+async def cancel_job(
+    job_id: str,
+    user: Dict[str, Any] = Depends(require_auth)
+):
+    """Cancel a job (requires authentication)"""
+    
+    if job_id not in jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    job = jobs[job_id]
+    
+    # Verify user owns this job
+    job_user_id = job.get("user_id")
+    if job_user_id and job_user_id != user.get("google_sub"):
+        raise HTTPException(status_code=403, detail="You don't have permission to access this job")
+    
+    # Check if job can be cancelled
+    current_status = job["status"]
+    if current_status in [JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED]:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Job cannot be cancelled. Current status: {current_status}"
+        )
+    
+    # Mark job as cancelled
+    jobs[job_id]["status"] = JobStatus.CANCELLED
+    jobs[job_id]["end_time"] = datetime.now().isoformat()
+    jobs[job_id]["error"] = "Job cancelled by user"
+    
+    # Save updated job status
+    save_job_to_file(job_id, jobs[job_id])
+    
+    logger.info(f"Job {job_id} cancelled by user")
+    
+    return {
+        "job_id": job_id,
+        "status": JobStatus.CANCELLED,
+        "message": "Job cancelled successfully"
     }
 
 @app.post("/api/annotate/{job_id}")
@@ -177,6 +296,9 @@ async def start_annotation(
     
     jobs[job_id]["status"] = JobStatus.PROCESSING
     jobs[job_id]["start_time"] = datetime.now().isoformat()
+    
+    # Save updated job status
+    save_job_to_file(job_id, jobs[job_id])
     
     logger.info(f"Started annotation process for job: {job_id}")
     
@@ -231,6 +353,11 @@ async def process_annotation(job_id: str):
             raise Exception(f"Step 1 failed: {result1.stderr}")
         
         logger.info(f"Step 1 completed for job {job_id}")
+        
+        # Check if job was cancelled after step 1
+        if job_id not in jobs or jobs[job_id]["status"] == JobStatus.CANCELLED:
+            logger.info(f"Job {job_id} was cancelled after step 1, aborting")
+            return
         
         # Step 2: Inference
         logger.info(f"Starting step 2 (inference) for job {job_id}")
@@ -301,6 +428,9 @@ async def process_annotation(job_id: str):
                 "num_plots": umap_results["num_plots"]
             }
             
+            # Save updated job status
+            save_job_to_file(job_id, jobs[job_id])
+            
             logger.info(f"Complete workflow finished successfully for job {job_id}")
             
         except Exception as umap_error:
@@ -315,6 +445,9 @@ async def process_annotation(job_id: str):
                 "umap_error": str(umap_error)
             }
             
+            # Save updated job status
+            save_job_to_file(job_id, jobs[job_id])
+            
             logger.info(f"Annotation completed (without UMAP) for job {job_id}")
         
     except Exception as e:
@@ -322,6 +455,9 @@ async def process_annotation(job_id: str):
         jobs[job_id]["status"] = JobStatus.FAILED
         jobs[job_id]["end_time"] = datetime.now().isoformat()
         jobs[job_id]["error"] = str(e)
+        
+        # Save failed job status
+        save_job_to_file(job_id, jobs[job_id])
     
     finally:
         # Clean up temporary directory

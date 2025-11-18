@@ -38,6 +38,12 @@ function Navigation({ activeTab, setActiveTab, authenticated, onLogout }) {
             📥 Download
           </button>
           <button
+            className={`nav-button ${activeTab === 'history' ? 'active' : ''}`}
+            onClick={() => setActiveTab('history')}
+          >
+            📊 History
+          </button>
+          <button
             className="nav-button"
             onClick={handleLogout}
             style={{ color: '#ff6b6b' }}
