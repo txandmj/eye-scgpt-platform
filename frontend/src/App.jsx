@@ -3,6 +3,7 @@ import './App.css';
 import Home from './components/Home';
 import Upload from './components/Upload';
 import Download from './components/Download';
+import History from './components/History';
 import Tutorial from './components/Tutorial';
 import Login from './components/Login';
 import Contact from './components/Contact';
@@ -86,6 +87,14 @@ function App() {
         {activeTab === 'download' && (
           authenticated ? (
             <Download jobId={currentJobId} />
+          ) : (
+            <Login setActiveTab={setActiveTab} onSuccess={handleLoginSuccess} />
+          )
+        )}
+        
+        {activeTab === 'history' && (
+          authenticated ? (
+            <History setActiveTab={setActiveTab} />
           ) : (
             <Login setActiveTab={setActiveTab} onSuccess={handleLoginSuccess} />
           )

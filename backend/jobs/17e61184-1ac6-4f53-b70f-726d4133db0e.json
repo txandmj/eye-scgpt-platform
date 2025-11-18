@@ -1,0 +1,11 @@
+{
+  "id": "17e61184-1ac6-4f53-b70f-726d4133db0e",
+  "status": "cancelled",
+  "filename": "EVAL_snRNA_no_enriched.h5ad",
+  "upload_time": "2025-11-17T23:50:27.842683",
+  "start_time": null,
+  "end_time": "2025-11-17T23:51:03.493019",
+  "error": "Job cancelled by user",
+  "results": null,
+  "user_id": "104619067792241623084"
+}

@@ -11,6 +11,8 @@ function Upload({ onUploadSuccess }) {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [jobId, setJobId] = useState(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [cancelSource, setCancelSource] = useState(null);
 
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0];
@@ -25,37 +27,84 @@ function Upload({ onUploadSuccess }) {
       return;
     }
 
-    const formData = new FormData();
-    formData.append('file', file);
-
     setUploading(true);
     setError('');
-    setMessage('Uploading file...');
+    setMessage('Preparing upload...');
+    setUploadProgress(0);
+
+    // Create cancel token for upload
+    const source = axios.CancelToken.source();
+    setCancelSource(source);
 
     try {
-      const response = await axios.post(`${API_URL}/api/upload`, formData, {
+      // Step 1: Create job and get job_id IMMEDIATELY (before upload starts)
+      const prepareResponse = await axios.post(
+        `${API_URL}/api/upload/prepare`,
+        { filename: file.name },
+        { headers: getAuthHeaders() }
+      );
+      
+      const uploadedJobId = prepareResponse.data.job_id;
+      setJobId(uploadedJobId);
+      setMessage(`Uploading file... Job ID: ${uploadedJobId}`);
+
+      // Step 2: Upload file with job_id
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('job_id', uploadedJobId);
+
+      const uploadResponse = await axios.post(`${API_URL}/api/upload`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
           ...getAuthHeaders(),
         },
+        cancelToken: source.token,
         onUploadProgress: (progressEvent) => {
           const percentCompleted = Math.round(
             (progressEvent.loaded * 100) / progressEvent.total
           );
+          setUploadProgress(percentCompleted);
           setMessage(`Uploading... ${percentCompleted}%`);
         },
       });
 
-      const uploadedJobId = response.data.job_id;
-      setJobId(uploadedJobId);
+      setUploadProgress(100);
       setMessage('File uploaded successfully! Starting annotation...');
+      setCancelSource(null); // Clear cancel source after upload completes
       
       // Automatically start annotation
       await handleAnnotate(uploadedJobId);
       
     } catch (err) {
-      setError(`Upload failed: ${err.response?.data?.detail || err.message}`);
+      if (axios.isCancel(err)) {
+        setMessage('Upload cancelled');
+        setError('');
+        // Cancel the job on backend
+        if (jobId) {
+          try {
+            await axios.post(
+              `${API_URL}/api/jobs/${jobId}/cancel`,
+              null,
+              { headers: getAuthHeaders() }
+            );
+          } catch (cancelErr) {
+            console.error('Failed to cancel job:', cancelErr);
+          }
+        }
+      } else {
+        setError(`Upload failed: ${err.response?.data?.detail || err.message}`);
+      }
       setUploading(false);
+      setUploadProgress(0);
+      setJobId(null);
+      setCancelSource(null);
+    }
+  };
+
+  const handleCancelUpload = () => {
+    if (cancelSource) {
+      cancelSource.cancel('Upload cancelled by user');
+      setCancelSource(null);
     }
   };
 
@@ -149,10 +198,64 @@ function Upload({ onUploadSuccess }) {
           </div>
         )}
 
+        {(uploading || annotating) && jobId && (
+          <div className="info-box" style={{ marginTop: 20 }}>
+            <p><strong>📋 Job ID:</strong> <code>{jobId}</code></p>
+            <p style={{ fontSize: '0.9em', color: '#666', marginTop: 5 }}>
+              You can navigate to other pages (History, Download) - your job will continue processing in the background.
+            </p>
+            {uploading && (
+              <button
+                onClick={handleCancelUpload}
+                className="btn btn-secondary"
+                style={{ 
+                  marginTop: 15,
+                  backgroundColor: '#ef4444', 
+                  color: 'white',
+                  border: 'none'
+                }}
+              >
+                🚫 Cancel Upload
+              </button>
+            )}
+          </div>
+        )}
+
+        {uploading && uploadProgress > 0 && (
+          <div style={{ marginTop: 20 }}>
+            <div style={{ 
+              width: '100%', 
+              backgroundColor: '#e9ecef', 
+              borderRadius: '8px', 
+              height: '30px',
+              overflow: 'hidden',
+              position: 'relative'
+            }}>
+              <div style={{
+                width: `${uploadProgress}%`,
+                backgroundColor: '#667eea',
+                height: '100%',
+                transition: 'width 0.3s ease',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: 'white',
+                fontSize: '0.85em',
+                fontWeight: 600
+              }}>
+                {uploadProgress < 100 ? `${uploadProgress}%` : 'Upload Complete!'}
+              </div>
+            </div>
+          </div>
+        )}
+
         {(uploading || annotating) && (
           <div className="progress-indicator">
             <div className="spinner"></div>
-            <p>Please wait, do not close this window...</p>
+            <p>{uploading ? 'Uploading file...' : 'Processing annotation...'}</p>
+            <p style={{ fontSize: '0.9em', color: '#666', marginTop: 10 }}>
+              You can close this page - the job will continue in the background. Check History page for updates.
+            </p>
           </div>
         )}
 
