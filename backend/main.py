@@ -16,6 +16,13 @@ import tempfile
 from pydantic import BaseModel
 from simple_umap_processor import run_two_stage_workflow
 from app import auth_router
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -77,6 +84,118 @@ def save_job_to_file(job_id: str, job_data: dict):
     except Exception as e:
         logger.warning(f"Failed to save job file for {job_id}: {e}")
 
+def send_completion_email(job_id: str, user_email: str, user_name: Optional[str], filename: str, frontend_url: str = None):
+    """Send email notification when job completes"""
+    # Get SMTP configuration from environment variables
+    smtp_host = os.getenv("SMTP_HOST")
+    smtp_port = int(os.getenv("SMTP_PORT", "587"))
+    smtp_user = os.getenv("SMTP_USER")
+    smtp_password = os.getenv("SMTP_PASSWORD")
+    smtp_from_email = os.getenv("SMTP_FROM_EMAIL", smtp_user)
+    frontend_url = frontend_url or os.getenv("FRONTEND_URL", "http://localhost:3000")
+    
+    # Skip email if SMTP is not configured
+    if not smtp_host or not smtp_user or not smtp_password:
+        logger.info(f"Email notification skipped for job {job_id}: SMTP not configured")
+        return
+    
+    if not user_email:
+        logger.warning(f"Email notification skipped for job {job_id}: No user email")
+        return
+    
+    try:
+        # Create message
+        msg = MIMEMultipart('alternative')
+        msg['Subject'] = f"Your analysis job is complete: {filename}"
+        msg['From'] = smtp_from_email
+        msg['To'] = user_email
+        
+        # Create email body
+        user_display_name = user_name or "User"
+        job_link = f"{frontend_url}/#/history"  # Link to history page
+        download_link = f"{frontend_url}/#/download?jobId={job_id}"  # Link to download page
+        
+        text_body = f"""
+Hello {user_display_name},
+
+Your analysis job has completed successfully!
+
+Job Details:
+- Job ID: {job_id}
+- Filename: {filename}
+- Status: Completed
+
+You can view and download your results at:
+{download_link}
+
+Or check your job history at:
+{job_link}
+
+Thank you for using Eye-scGPT Annotation Platform!
+"""
+        
+        html_body = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+        .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+        .header {{ background-color: #667eea; color: white; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }}
+        .content {{ background-color: #f9f9f9; padding: 30px; border-radius: 0 0 5px 5px; }}
+        .button {{ display: inline-block; padding: 12px 24px; background-color: #667eea; color: white; text-decoration: none; border-radius: 5px; margin: 10px 5px; }}
+        .button:hover {{ background-color: #5568d3; }}
+        .job-details {{ background-color: white; padding: 15px; border-radius: 5px; margin: 20px 0; }}
+        .job-detail {{ margin: 10px 0; }}
+        .footer {{ text-align: center; color: #666; font-size: 12px; margin-top: 30px; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>✅ Analysis Complete!</h1>
+        </div>
+        <div class="content">
+            <p>Hello {user_display_name},</p>
+            <p>Your analysis job has completed successfully!</p>
+            
+            <div class="job-details">
+                <div class="job-detail"><strong>Job ID:</strong> {job_id}</div>
+                <div class="job-detail"><strong>Filename:</strong> {filename}</div>
+                <div class="job-detail"><strong>Status:</strong> ✅ Completed</div>
+            </div>
+            
+            <p>You can view and download your results:</p>
+            <a href="{download_link}" class="button">📥 View Results</a>
+            <a href="{job_link}" class="button">📊 Job History</a>
+            
+            <div class="footer">
+                <p>Thank you for using Eye-scGPT Annotation Platform!</p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
+"""
+        
+        # Add parts
+        part1 = MIMEText(text_body, 'plain')
+        part2 = MIMEText(html_body, 'html')
+        msg.attach(part1)
+        msg.attach(part2)
+        
+        # Send email
+        with smtplib.SMTP(smtp_host, smtp_port) as server:
+            server.starttls()
+            server.login(smtp_user, smtp_password)
+            server.send_message(msg)
+        
+        logger.info(f"Email notification sent for job {job_id} to {user_email}")
+        
+    except Exception as e:
+        logger.error(f"Failed to send email notification for job {job_id}: {str(e)}")
+        # Don't raise exception - email failure shouldn't break the job completion
+
 # Load existing jobs on startup
 load_existing_jobs()
 
@@ -93,6 +212,8 @@ class JobStatus:
 # Authentication dependency - simplified version for header-based auth
 async def require_auth(
     x_google_sub: Optional[str] = Header(default=None, alias="X-Google-Sub"),
+    x_user_email: Optional[str] = Header(default=None, alias="X-User-Email"),
+    x_user_name: Optional[str] = Header(default=None, alias="X-User-Name"),
 ) -> Dict[str, Any]:
     """Require authentication - returns user info or raises exception"""
     if not x_google_sub:
@@ -102,6 +223,8 @@ async def require_auth(
         )
     return {
         "google_sub": x_google_sub,
+        "email": x_user_email,
+        "name": x_user_name,
         "authenticated": True
     }
 
@@ -140,7 +263,9 @@ async def prepare_upload(
         "end_time": None,
         "error": None,
         "results": None,
-        "user_id": user.get("google_sub")
+        "user_id": user.get("google_sub"),
+        "user_email": user.get("email"),
+        "user_name": user.get("name")
     }
     
     # Save job to file immediately
@@ -194,7 +319,9 @@ async def upload_file(
             "end_time": None,
             "error": None,
             "results": None,
-            "user_id": user.get("google_sub")
+            "user_id": user.get("google_sub"),
+            "user_email": user.get("email"),
+            "user_name": user.get("name")
         }
         save_job_to_file(job_id, jobs[job_id])
     
@@ -431,6 +558,16 @@ async def process_annotation(job_id: str):
             # Save updated job status
             save_job_to_file(job_id, jobs[job_id])
             
+            # Send email notification
+            user_email = jobs[job_id].get("user_email")
+            user_name = jobs[job_id].get("user_name")
+            filename = jobs[job_id].get("filename", "unknown")
+            if user_email:
+                try:
+                    send_completion_email(job_id, user_email, user_name, filename)
+                except Exception as email_error:
+                    logger.warning(f"Failed to send completion email for job {job_id}: {email_error}")
+            
             logger.info(f"Complete workflow finished successfully for job {job_id}")
             
         except Exception as umap_error:
@@ -447,6 +584,16 @@ async def process_annotation(job_id: str):
             
             # Save updated job status
             save_job_to_file(job_id, jobs[job_id])
+            
+            # Send email notification
+            user_email = jobs[job_id].get("user_email")
+            user_name = jobs[job_id].get("user_name")
+            filename = jobs[job_id].get("filename", "unknown")
+            if user_email:
+                try:
+                    send_completion_email(job_id, user_email, user_name, filename)
+                except Exception as email_error:
+                    logger.warning(f"Failed to send completion email for job {job_id}: {email_error}")
             
             logger.info(f"Annotation completed (without UMAP) for job {job_id}")
         
