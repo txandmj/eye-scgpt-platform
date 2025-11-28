@@ -208,12 +208,33 @@ class Preprocessor:
             is used in the highly variable gene selection step.
         """
         data = adata.X
-        max_, min_ = data.max(), data.min()
+        # Guard against empty matrices to avoid ValueError on min/max
+        try:
+            if issparse(data):
+                # Empty or all-zero sparse matrix
+                if data.shape[0] == 0 or data.shape[1] == 0 or data.nnz == 0:
+                    return False
+                max_ = data.max()
+                min_ = data.min()
+            else:
+                if data.size == 0:
+                    return False
+                max_ = data.max()
+                min_ = data.min()
+        except ValueError:
+            # Any reduction on zero-size raises ValueError; treat as not logged
+            return False
         if max_ > 30:
             return False
         if min_ < 0:
             return False
-        non_zero_min = data[data > 0].min()
+        # Compute min strictly over non-zero entries
+        if issparse(data):
+            nz = data.data[data.data > 0] if data.nnz > 0 else np.array([])
+            non_zero_min = nz.min() if nz.size > 0 else np.inf
+        else:
+            nz = data[data > 0]
+            non_zero_min = nz.min() if nz.size > 0 else np.inf
         if non_zero_min >= 1:
             return False
         return True

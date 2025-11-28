@@ -13,11 +13,8 @@ import logging
 from datetime import datetime
 import threading
 import tempfile
-<<<<<<< HEAD
 from app import auth_router
-=======
 from simple_umap_processor import run_two_stage_workflow
->>>>>>> 49c03b5 (add umap processor)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
