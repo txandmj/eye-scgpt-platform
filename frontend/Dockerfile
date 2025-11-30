@@ -7,10 +7,18 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install dependencies
-RUN npm ci
+RUN npm install
 
 # Copy source code
 COPY . .
+
+# Build arguments for environment variables
+ARG REACT_APP_GOOGLE_CLIENT_ID
+ARG REACT_APP_API_BASE
+
+# Set environment variables for build
+ENV REACT_APP_GOOGLE_CLIENT_ID=$REACT_APP_GOOGLE_CLIENT_ID
+ENV REACT_APP_API_BASE=$REACT_APP_API_BASE
 
 # Build the application
 RUN npm run build

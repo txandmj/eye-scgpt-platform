@@ -6,9 +6,12 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        - REACT_APP_GOOGLE_CLIENT_ID=${REACT_APP_GOOGLE_CLIENT_ID:-614680692430-5h5kkciuel8l0jld2fl294g73ununios.apps.googleusercontent.com}
+        - REACT_APP_API_BASE=${REACT_APP_API_BASE:-http://localhost:8100}
     container_name: scgpt-frontend
     ports:
-      - "80:80"
+      - "3100:80"
     depends_on:
       - backend
     networks:
@@ -22,7 +25,7 @@ services:
       dockerfile: Dockerfile
     container_name: scgpt-backend
     ports:
-      - "8000:8000"
+      - "8100:8000"
     environment:
       - HOST=0.0.0.0
       - PORT=8000
@@ -43,32 +46,6 @@ services:
         reservations:
           cpus: '8'
           memory: 32G
-
-  # Redis (for task queue - optional for MVP)
-  # redis:
-  #   image: redis:7-alpine
-  #   container_name: scgpt-redis
-  #   ports:
-  #     - "6379:6379"
-  #   networks:
-  #     - scgpt-network
-  #   restart: unless-stopped
-
-  # PostgreSQL (for user management - optional for MVP)
-  # postgres:
-  #   image: postgres:15-alpine
-  #   container_name: scgpt-postgres
-  #   environment:
-  #     POSTGRES_USER: scgpt_user
-  #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-  #     POSTGRES_DB: scgpt_db
-  #   volumes:
-  #     - postgres-data:/var/lib/postgresql/data
-  #   ports:
-  #     - "5432:5432"
-  #   networks:
-  #     - scgpt-network
-  #   restart: unless-stopped
 
 networks:
   scgpt-network:

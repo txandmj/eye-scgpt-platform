@@ -11,6 +11,7 @@ import pandas as pd
 import seaborn as sns
 from pathlib import Path
 import logging
+import shutil
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -165,7 +166,9 @@ def stage2_umapby(h5ad_file, output_dir, base_name=None, width=5, height=5):
         logger.info("Moving plots from figures/ directory to output directory...")
         for plot_file in figures_dir.glob(f"umap{base_name}_umap_*.png"):
             target_file = output_dir / plot_file.name
-            plot_file.rename(target_file)
+            # Use shutil.move() which handles cross-filesystem moves correctly
+            # It automatically copies then removes if rename fails (cross-device link error)
+            shutil.move(str(plot_file), str(target_file))
             logger.info(f"Moved {plot_file.name} to {target_file}")
         
         # After moving, get the actual moved files

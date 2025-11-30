@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { getAuthHeaders } from '../auth';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const API_URL = 'http://eye.som.uci.edu:8100';
 
 function Download({ jobId }) {
   const [results, setResults] = useState([]);

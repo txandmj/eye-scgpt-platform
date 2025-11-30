@@ -6,8 +6,12 @@ function Login({ setActiveTab, onSuccess }) {
   const [message, setMessage] = React.useState('');
   const googleBtnRef = useRef(null);
 
-  const GOOGLE_CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID || '978070226745-cpevojet4d29ep33vm1vm88mr9st4osm.apps.googleusercontent.com';
-  const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:8000';
+  const GOOGLE_CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID || '614680692430-5h5kkciuel8l0jld2fl294g73ununios.apps.googleusercontent.com';
+
+  //614680692430-5h5kkciuel8l0jld2fl294g73ununios.apps.googleusercontent.com
+
+  // Use relative URLs to go through nginx proxy when on domain, or direct URL for localhost
+  const API_BASE = 'http://eye.som.uci.edu:8100';
 
   useEffect(() => {
     let retryTimer;
@@ -25,6 +29,14 @@ function Login({ setActiveTab, onSuccess }) {
       } catch (_) {
         // ignore if not supported
       }
+
+      // Log the origin for debugging
+      const currentOrigin = window.location.origin;
+      console.log('[Google OAuth] Initializing with:', {
+        clientId: GOOGLE_CLIENT_ID,
+        origin: currentOrigin,
+        fullUrl: window.location.href
+      });
 
       google.accounts.id.initialize({
         client_id: GOOGLE_CLIENT_ID,
