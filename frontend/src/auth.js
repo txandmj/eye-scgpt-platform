@@ -1,4 +1,6 @@
 // Simple auth header management using Google ID token payload
+// Using sessionStorage instead of localStorage to support multiple users in different browser tabs/windows
+// sessionStorage is isolated per tab, so each user can have their own session
 
 function decodeJwtPayload(token) {
   try {
@@ -10,6 +12,20 @@ function decodeJwtPayload(token) {
   }
 }
 
+// Helper to get storage (sessionStorage for per-tab isolation)
+function getStorage() {
+  try {
+    return window.sessionStorage;
+  } catch {
+    // Fallback to localStorage if sessionStorage is not available
+    try {
+      return window.localStorage;
+    } catch {
+      return null;
+    }
+  }
+}
+
 export function setAuthFromGoogle(credential, fallback = {}) {
   const payload = decodeJwtPayload(credential) || {};
   const data = {
@@ -17,21 +33,27 @@ export function setAuthFromGoogle(credential, fallback = {}) {
     email: payload.email || fallback.email || 'test@example.com',
     name: payload.name || fallback.name || 'Test User',
   };
-  try {
-    localStorage.setItem('auth.google_sub', data.google_sub);
-    localStorage.setItem('auth.email', data.email);
-    localStorage.setItem('auth.name', data.name);
-  } catch (_) {
-    // ignore storage errors
+  const storage = getStorage();
+  if (storage) {
+    try {
+      storage.setItem('auth.google_sub', data.google_sub);
+      storage.setItem('auth.email', data.email);
+      storage.setItem('auth.name', data.name);
+    } catch (_) {
+      // ignore storage errors
+    }
   }
   return data;
 }
 
 export function getAuthHeaders() {
+  const storage = getStorage();
+  if (!storage) return {};
+  
   try {
-    const sub = localStorage.getItem('auth.google_sub');
-    const email = localStorage.getItem('auth.email');
-    const name = localStorage.getItem('auth.name');
+    const sub = storage.getItem('auth.google_sub');
+    const email = storage.getItem('auth.email');
+    const name = storage.getItem('auth.name');
     const headers = {};
     if (sub) headers['X-Google-Sub'] = sub;
     if (email) headers['X-User-Email'] = email;
@@ -43,17 +65,23 @@ export function getAuthHeaders() {
 }
 
 export function isAuthenticated() {
+  const storage = getStorage();
+  if (!storage) return false;
+  
   try {
-    return !!localStorage.getItem('auth.google_sub');
+    return !!storage.getItem('auth.google_sub');
   } catch {
     return false;
   }
 }
 
 export function getUserInfo() {
+  const storage = getStorage();
+  if (!storage) return { email: null, name: null };
+  
   try {
-    const email = localStorage.getItem('auth.email');
-    const name = localStorage.getItem('auth.name');
+    const email = storage.getItem('auth.email');
+    const name = storage.getItem('auth.name');
     return {
       email: email || null,
       name: name || null,
@@ -64,10 +92,13 @@ export function getUserInfo() {
 }
 
 export function clearAuth() {
+  const storage = getStorage();
+  if (!storage) return;
+  
   try {
-    localStorage.removeItem('auth.google_sub');
-    localStorage.removeItem('auth.email');
-    localStorage.removeItem('auth.name');
+    storage.removeItem('auth.google_sub');
+    storage.removeItem('auth.email');
+    storage.removeItem('auth.name');
   } catch {
     // ignore
   }

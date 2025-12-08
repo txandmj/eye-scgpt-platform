@@ -57,6 +57,9 @@ JOBS_DIR = Path("jobs")
 for directory in [UPLOAD_DIR, RESULTS_DIR, MODELS_DIR, JOBS_DIR]:
     directory.mkdir(exist_ok=True)
 
+# Get the backend directory path (needed for subprocess calls)
+backend_dir = Path(__file__).parent
+
 # In-memory job tracking (in production, use Redis or database)
 jobs = {}
 
@@ -435,8 +438,19 @@ async def start_annotation(
         "message": "Annotation process started"
     }
 
+def _run_subprocess_blocking(cmd, cwd, env, timeout):
+    """Blocking subprocess runner - to be executed in thread pool"""
+    return subprocess.run(
+        cmd,
+        cwd=cwd,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=timeout
+    )
+
 async def process_annotation(job_id: str):
-    """Process the annotation in background"""
+    """Process the annotation in background - runs blocking subprocess calls in thread pool"""
     temp_dir = None
     try:
         job = jobs[job_id]
@@ -466,14 +480,15 @@ async def process_annotation(job_id: str):
             'LOAD_MODEL': str(TEST_MODEL_DIR)
         })
         
-        # Run step 1 directly
-        result1 = subprocess.run(
+        # Run step 1 in thread pool to avoid blocking event loop
+        loop = asyncio.get_event_loop()
+        result1 = await loop.run_in_executor(
+            None,
+            _run_subprocess_blocking,
             ["python", "step1_preprocess.py"],
-            cwd=backend_dir,
-            env=step1_env,
-            capture_output=True,
-            text=True,
-            timeout=3600  # 1 hour timeout
+            backend_dir,
+            step1_env,
+            3600  # 1 hour timeout
         )
         
         if result1.returncode != 0:
@@ -499,14 +514,14 @@ async def process_annotation(job_id: str):
             'SAVE_DIR': str(step2_dir)
         })
         
-        # Run step 2 directly
-        result2 = subprocess.run(
+        # Run step 2 in thread pool to avoid blocking event loop
+        result2 = await loop.run_in_executor(
+            None,
+            _run_subprocess_blocking,
             ["python", "step2_inference.py"],
-            cwd=backend_dir,
-            env=step2_env,
-            capture_output=True,
-            text=True,
-            timeout=3600  # 1 hour timeout
+            backend_dir,
+            step2_env,
+            3600  # 1 hour timeout
         )
         
         if result2.returncode != 0:
@@ -533,8 +548,11 @@ async def process_annotation(job_id: str):
         umap_dir.mkdir(exist_ok=True)
         
         try:
-            # Run the simple two-stage UMAP workflow
-            umap_results = run_two_stage_workflow(
+            # Run the simple two-stage UMAP workflow (this is CPU-bound, run in thread pool)
+            loop = asyncio.get_event_loop()
+            umap_results = await loop.run_in_executor(
+                None,
+                run_two_stage_workflow,
                 h5ad_file=str(uploaded_file),
                 metadata_file=str(final_predictions_file),
                 output_dir=str(umap_dir),
@@ -830,9 +848,6 @@ async def get_umap_preview(
         media_type="image/png"
     )
 
-
-# Get the backend directory path
-backend_dir = Path(__file__).parent
 
 if __name__ == "__main__":
     import uvicorn
