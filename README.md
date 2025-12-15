@@ -19,13 +19,28 @@ A streamlined web-based platform for automated cell type annotation of single-ce
 
 ```bash
 # Clone the repository
-git clone <repository-url>
+git clone https://github.com/txandmj/eye-scgpt-platform.git
 cd eye-scgpt-platform
 
-# Start the entire platform
-docker-compose up --build
+# Start the platform (frontend:3100, backend:8100)
+docker-compose build frontend backend
+docker-compose up -d backend frontend
 
+# Stop the platform
+docker-compose stop backend frontend
+
+# View backend logs
+docker-compose logs -f backend
 ```
+
+**Ports**
+- Frontend (Nginx): http://localhost:3100
+- Backend (FastAPI): http://localhost:8100 (docs at `/docs`)
+
+**Common environment variables**
+- `REACT_APP_GOOGLE_CLIENT_ID` — Google OAuth client ID
+- `REACT_APP_API_BASE` — Backend base URL (e.g., `http://localhost:8100`)
+- SMTP (optional): `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM_EMAIL`, `FRONTEND_URL`
 
 ### Option 2: Manual Setup
 
@@ -42,7 +57,8 @@ python setup_model.py
 
 # Start backend server
 python start.py
-# OR: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+# Backend runs on http://localhost:8000 (docs at /docs)
+# If you change the port, update the frontend API base accordingly.
 ```
 
 #### Frontend Setup
@@ -55,7 +71,9 @@ npm install
 
 # Start development server
 npm start
-# Frontend: http://localhost:3000
+# Frontend: http://localhost:3000 (dev)
+# Ensure it points to the backend by setting REACT_APP_API_BASE
+#   e.g., export REACT_APP_API_BASE=http://localhost:8000
 ```
 
 ## 📊 How It Works
